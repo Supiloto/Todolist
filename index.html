@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的待办清单</title>
+  <!-- 引入Vue.js -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+  <!-- 自定义样式 -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 整体布局：左侧导航 + 右侧内容 -->
+    <div class="app-layout">
+      <!-- 左侧导航栏 -->
+      <aside class="sidebar">
+        <div class="logo">
+          <h1>我的任务系统</h1>
+        </div>
+        
+        <!-- 导航菜单 -->
+        <nav class="main-nav">
+          <h2>任务视图</h2>
+          <ul>
+            <li>
+              <button 
+                @click="switchView('strategy')" 
+                :class="{ active: currentView === 'strategy' }"
+              >我的规划</button>
+            </li>
+            <li>
+              <button 
+                @click="switchView('daily')" 
+                :class="{ active: currentView === 'daily' }"
+              >每日任务</button>
+            </li>
+            <li>
+              <button 
+                @click="switchView('timeline')" 
+                :class="{ active: currentView === 'timeline' }"
+              >每日时间轴</button>
+            </li>
+          </ul>
+        </nav>
+        
+        <!-- 日期筛选 -->
+        <div class="date-nav" v-if="uniqueDates.length > 0">
+          <h3>按日期筛选</h3>
+          <div class="date-list">
+            <button 
+              v-for="date in uniqueDates" 
+              :key="date" 
+              @click="selectDate(date)" 
+              :class="{ 
+                'active': selectedDate === date,
+                'today': isToday(date)
+              }"
+              class="date-btn"
+            >
+              {{ formatDate(date) }}
+              <span class="task-count">
+                {{ tasks.filter(task => task.date === date).length }}个任务
+              </span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- 当前任务统计 -->
+        <div class="task-stats" v-if="tasks.length > 0">
+          <div class="stat-item">
+            总任务：<strong>{{ tasks.length }}</strong>
+          </div>
+          <div class="stat-item">
+            待完成：<strong>{{ activeTasksCount }}</strong>
+          </div>
+          <div class="stat-item">
+            已完成：<strong>{{ completedTasksCount }}</strong>
+          </div>
+        </div>
+      </aside>
+      
+      <!-- 右侧主内容区 -->
+      <main class="main-content">
+        <!-- 视图标题 -->
+        <header class="content-header">
+          <h2 v-if="currentView === 'strategy'">我的规划（战略）</h2>
+          <h2 v-else-if="currentView === 'daily'">
+            {{ selectedDate === today ? '今日任务' : formatDate(selectedDate) + ' 任务' }}
+          </h2>
+          <h2 v-else-if="currentView === 'timeline'">
+            {{ selectedDate === today ? '今日时间轴' : formatDate(selectedDate) + ' 时间轴' }}
+          </h2>
+        </header>
+        
+        <!-- 不同视图内容 -->
+        <!-- 1. 战略规划视图 -->
+        <div v-if="currentView === 'strategy'" class="strategy-view">
+          <!-- 添加规划 -->
+          <div class="add-strategy">
+            <div class="form-group">
+              <input 
+                v-model="newStrategy.title" 
+                placeholder="输入规划标题..."
+                class="strategy-title-input"
+              />
+            </div>
+            <div class="form-group">
+              <textarea 
+                v-model="newStrategy.description" 
+                placeholder="描述您的规划内容..."
+                class="strategy-desc-input"
+              ></textarea>
+            </div>
+            <div class="form-actions">
+              <button @click="addStrategy" class="add-button">添加规划</button>
+            </div>
+          </div>
+          
+          <!-- 规划列表 -->
+          <div class="strategy-list" v-if="strategies.length > 0">
+            <div 
+              v-for="(strategy, index) in strategies" 
+              :key="index" 
+              class="strategy-item"
+              :class="{ 'completed': strategy.completed }"
+            >
+              <div class="strategy-header">
+                <div class="strategy-status">
+                  <input 
+                    type="checkbox" 
+                    v-model="strategy.completed" 
+                    @change="saveData"
+                  />
+                </div>
+                <h3 class="strategy-title">{{ strategy.title }}</h3>
+                <div class="strategy-actions">
+                  <button @click="editStrategy(index)" v-if="!strategy.editing" class="edit-button">编辑</button>
+                  <button @click="deleteStrategy(index)" class="delete-button">删除</button>
+                </div>
+              </div>
+              
+              <div class="strategy-body" v-if="!strategy.editing">
+                <p class="strategy-description">{{ strategy.description }}</p>
+              </div>
+              
+              <div class="strategy-edit" v-else>
+                <div class="form-group">
+                  <input 
+                    v-model="strategy.title" 
+                    class="strategy-title-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <textarea 
+                    v-model="strategy.description" 
+                    class="strategy-desc-input"
+                  ></textarea>
+                </div>
+                <div class="form-actions">
+                  <button @click="finishEditStrategy(index)" class="save-button">保存</button>
+                  <button @click="cancelEditStrategy(index)" class="cancel-button">取消</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 无规划提示 -->
+          <div class="empty-list" v-else>
+            <p>暂无战略规划，添加一个吧！</p>
+          </div>
+        </div>
+        
+        <!-- 2. 每日任务视图 -->
+        <div v-else-if="currentView === 'daily'" class="daily-view">
+          <!-- 添加任务 -->
+          <div class="add-task">
+            <div class="task-input-group">
+              <input 
+                v-model="newTask" 
+                @keyup.enter="addTask" 
+                placeholder="添加新任务..." 
+                class="task-input"
+              >
+              <input 
+                type="date" 
+                v-model="newTaskDate" 
+                class="date-input"
+              >
+              <input 
+                type="time" 
+                v-model="newTaskStartTime" 
+                class="time-input"
+                placeholder="开始时间"
+              >
+              <input 
+                type="time" 
+                v-model="newTaskEndTime" 
+                class="time-input"
+                placeholder="结束时间"
+              >
+            </div>
+            <button @click="addTask" class="add-button">添加</button>
+          </div>
+          
+          <!-- 任务过滤器 -->
+          <div class="task-filters">
+            <button 
+              @click="setFilter('all')" 
+              :class="{ active: currentFilter === 'all' }"
+              class="filter-btn"
+            >全部</button>
+            
+            <button 
+              @click="setFilter('active')" 
+              :class="{ active: currentFilter === 'active' }"
+              class="filter-btn"
+            >未完成</button>
+            
+            <button 
+              @click="setFilter('completed')" 
+              :class="{ active: currentFilter === 'completed' }"
+              class="filter-btn"
+            >已完成</button>
+          </div>
+          
+          <!-- 任务列表 -->
+          <ul class="task-list" v-if="filteredTasks.length > 0">
+            <li 
+              v-for="task in filteredTasks" 
+              :key="task.id" 
+              :class="{ completed: task.completed }"
+              class="task-item"
+            >
+              <div class="task-content">
+                <input 
+                  type="checkbox" 
+                  v-model="task.completed" 
+                  @change="saveData"
+                  class="task-checkbox"
+                >
+                <div class="task-info" v-if="!task.editing">
+                  <div class="task-text" @dblclick="editTask(task)">
+                    {{ task.title }}
+                  </div>
+                  <div class="task-time-info">
+                    <span class="task-date" :class="{ 'today': isToday(task.date), 'overdue': task.date < today && !task.completed }">
+                      {{ formatDate(task.date) }}
+                    </span>
+                    <span class="task-time" v-if="task.startTime">
+                      {{ task.startTime }}~{{ task.endTime }}
+                    </span>
+                  </div>
+                </div>
+                <div class="task-edit" v-else>
+                  <input 
+                    v-model="task.title" 
+                    @blur="doneEdit(task)" 
+                    @keyup.enter="doneEdit(task)"
+                    @keyup.esc="cancelEdit(task)"
+                    class="task-edit-input"
+                    v-focus
+                  >
+                  <div class="task-time-edit">
+                    <input 
+                      type="date" 
+                      v-model="task.date" 
+                      class="date-edit-input"
+                    >
+                    <input 
+                      type="time" 
+                      v-model="task.startTime" 
+                      class="time-edit-input"
+                    >
+                    <input 
+                      type="time" 
+                      v-model="task.endTime" 
+                      class="time-edit-input"
+                    >
+                  </div>
+                </div>
+              </div>
+              <div class="task-actions">
+                <button @click="editTask(task)" class="edit-button" v-if="!task.editing">编辑</button>
+                <button @click="deleteTask(task)" class="delete-button">删除</button>
+              </div>
+            </li>
+          </ul>
+          
+          <!-- 无任务提示 -->
+          <div class="empty-list" v-else>
+            <p>没有找到匹配的任务</p>
+          </div>
+          
+          <!-- 任务操作 -->
+          <div class="list-actions" v-if="completedTasksCount > 0">
+            <button @click="clearCompleted" class="clear-button">
+              清除已完成
+            </button>
+          </div>
+        </div>
+        
+        <!-- 3. 时间轴视图 -->
+        <div v-else-if="currentView === 'timeline'" class="timeline-view">
+          <div class="timeline-date">
+            {{ formatDate(selectedDate) }}
+          </div>
+          
+          <!-- 时间轴 -->
+          <div class="timeline-container">
+            <!-- 时间刻度 -->
+            <div class="timeline-hours">
+              <div class="hour-marker" v-for="hour in 24" :key="hour">
+                <div class="hour-label">{{ hour - 1 }}:00</div>
+              </div>
+            </div>
+            
+            <!-- 任务时间块 -->
+            <div class="timeline-tasks">
+              <div 
+                v-for="task in tasksForTimeline" 
+                :key="task.id"
+                class="timeline-task"
+                :class="{ 'completed': task.completed }"
+                :style="getTaskTimeStyle(task)"
+                @click="editTask(task)"
+              >
+                <div class="timeline-task-content">
+                  <div class="timeline-task-title">{{ task.title }}</div>
+                  <div class="timeline-task-time">
+                    {{ task.startTime || '00:00' }} - {{ task.endTime || '00:00' }}
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 当前时间线 -->
+              <div class="current-time-indicator" :style="getCurrentTimeStyle()" v-if="isToday(selectedDate)"></div>
+            </div>
+          </div>
+          
+          <!-- 无时间任务列表 -->
+          <div class="no-time-tasks" v-if="tasksWithoutTime.length > 0">
+            <h3>未安排时间的任务</h3>
+            <ul class="task-list">
+              <li 
+                v-for="task in tasksWithoutTime" 
+                :key="task.id" 
+                :class="{ completed: task.completed }"
+                class="task-item"
+              >
+                <div class="task-content">
+                  <input 
+                    type="checkbox" 
+                    v-model="task.completed" 
+                    @change="saveData"
+                    class="task-checkbox"
+                  >
+                  <div class="task-text">
+                    {{ task.title }}
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <button @click="editTask(task)" class="edit-button">编辑</button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </main>
+    </div>
+    
+    <!-- 底部操作栏 -->
+    <footer class="app-footer">
+      <div class="data-actions">
+        <button @click="exportData" class="export-button">导出数据</button>
+        <label for="importFile" class="import-button">导入数据</label>
+        <input
+          type="file"
+          id="importFile"
+          @change="importData"
+          accept=".json"
+          style="display: none;"
+        >
+      </div>
+    </footer>
+  </div>
+
+  <!-- 自定义脚本 -->
+  <script src="js/app.js"></script>
+</body>
+</html> 
